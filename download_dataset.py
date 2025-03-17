@@ -18,7 +18,7 @@ def dowload_dataset_with_wget(url: str, database_name: str | None = None):
 
   os.makedirs(destination_dir, exist_ok=True)
 
-  os.system(f"wget -r -N -c -np -P {destination_dir} {url}")
+  os.system(f"wget -r -N -c -np -nH --cut-dirs 4 -O -P {destination_dir} {url}")
 
 
 

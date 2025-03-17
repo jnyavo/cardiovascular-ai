@@ -1,5 +1,7 @@
 .venv
-/dataset/
+/dataset/*
+/ckpts/*
 __pycache__
 ecg-qa
 dist
+/results

@@ -13,8 +13,10 @@ TIME = 10
 END_TIME = START_TIME + TIME
 
 class Record:
-  def __init__(self, record: RecordType):
+  def __init__(self, record: RecordType, diagnostic: str, scp_codes: list[str]):
       self.data, self.fields = record
+      self.diagnostic = diagnostic
+      self.scp_codes = scp_codes
   def draw_ecg(self, lead: Lead = Lead.I):
     """
       Draws a single ECG lead

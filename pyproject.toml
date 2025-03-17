@@ -9,15 +9,20 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = ">=3.10, <3.12"
 matplotlib = "^3.10.1"
-numpy = "^2.2.3"
-wfdb = "^4.2.0"
+numpy = "1.23"
+wfdb = "3.2"
+huggingface-hub = "^0.29.2"
+fairseq-signals = {git = "https://github.com/Jwoo5/fairseq-signals.git"}
+plotly = "^6.0.0"
 
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29.5"
 ipynbname = "^2024.1.0.0"
+jupyterlab = "^4.3.5"
+ipywidgets = "^8.1.5"
 
 [build-system]
 requires = ["poetry-core"]

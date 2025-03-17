@@ -92,7 +92,7 @@ class PTBXL:
     """
     record_folder = self.full_path
     record_path = os.path.join(record_folder, self.get_ptbxl_data_path(id))
-    record = Record(wfdb.rdsamp(record_path))
+    record = Record(wfdb.rdsamp(record_path), self.metadata.loc[id].diagnostic_superclass, self.metadata.loc[id].scp_codes)
     return record
 
   def _aggregate_diagnostic(y_dic: dict, agg_df: pd.DataFrame):
@@ -121,7 +121,7 @@ class PTBXL:
               # record.p_signal contains the ECG waveform (as a 2D array: samples x channels).
               X.append(record.data)
               # Here we assume labels are in the "scp_codes" column. Modify if your metadata differs.
-              Y.append(row['scp_codes'])
+              Y.append(row['diagnostic_superclass'])
       # Using an object dtype array for X as the signals can have varying lengths.
       return np.array(X, dtype=object), Y
 
@@ -147,7 +147,6 @@ class PTBXL:
       _, Y = self.load_all()
       return Y
 
-# Example usage:
 if __name__ == "__main__":
   ptbxl = PTBXL()
   record = ptbxl.load_record(1)
