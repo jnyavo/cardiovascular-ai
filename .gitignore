@@ -5,3 +5,4 @@ __pycache__
 ecg-qa
 dist
 /results
+/preprocessed_data

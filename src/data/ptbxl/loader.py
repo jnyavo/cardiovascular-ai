@@ -1,6 +1,7 @@
 import ast
 import os
 import pandas as pd
+from sklearn.preprocessing import MultiLabelBinarizer
 import wfdb
 import numpy as np
 from data.ptbxl.enums import SamplingRate, Lead
@@ -43,6 +44,7 @@ class PTBXL:
     if not os.path.exists(full_path):
         raise ValueError(f"Path {full_path} does not exist. Please check your base_path and sampling_rate.")
     self.full_path = full_path
+    self.base_path = os.path.join(current_path, base_path)
     self.sampling_rate = sampling_rate
     self.metadata_path = os.path.join(base_path, metadata_filename)
 
@@ -62,6 +64,11 @@ class PTBXL:
 
     # Apply diagnostic superclass
     metadata['diagnostic_superclass'] = metadata.scp_codes.apply(lambda y: aggregate_diagnostic(y, agg_df))
+    metadata["superdiagnostic_len"] = metadata["diagnostic_superclass"].apply(lambda x: len(x))
+    counts = pd.Series(np.concatenate(metadata.diagnostic_superclass.values)).value_counts()
+    metadata["diagnostic_superclass"] = metadata["diagnostic_superclass"].apply(
+        lambda x: list(set(x).intersection(set(counts.index.values)))
+    )
     
     self.metadata = metadata
   
@@ -74,11 +81,10 @@ class PTBXL:
   def _load_raw_data(self):
     df = self.metadata
     if self.sampling_rate == SamplingRate.HZ_100:
-        data = [wfdb.rdsamp(os.path.join(self.full_path, f)) for f in df.filename_lr]
+        data = [wfdb.rdsamp(os.path.join(self.base_path, f))[0] for f in df.filename_lr]
     else:
-        data = [wfdb.rdsamp(os.path.join(self.full_path, f)) for f in df.filename_hr]
-    data = np.array([signal for signal, _ in data])
-    return data
+        data = [wfdb.rdsamp(os.path.join(self.base_path, f))[0] for f in df.filename_hr]
+    return np.array(data)
   
   def load_record(self, id: int):
     """
@@ -108,22 +114,26 @@ class PTBXL:
 
       Returns:
       - X (np.ndarray of arrays): Array containing the ECG signals.
-      - Y (list): List of diagnostic labels corresponding to each record.
+      - Y (np.ndarray): Array containing the labels corresponding to the ECG records.
+      - Y_data (pd.DataFrame): DataFrame containing the metadata for the records.
+      - classes (list): List of unique diagnostic classes.
       
       Note: Loading all records may be time consuming and memory intensive.
       """
-      X = []
-      Y = []
-      for idx, row in self.metadata.iterrows():
-          record_id = row['filename']  # Assumes the record identifier is in the "filename" column.
-          record = self.load_record(record_id)
-          if record is not None:
-              # record.p_signal contains the ECG waveform (as a 2D array: samples x channels).
-              X.append(record.data)
-              # Here we assume labels are in the "scp_codes" column. Modify if your metadata differs.
-              Y.append(row['diagnostic_superclass'])
-      # Using an object dtype array for X as the signals can have varying lengths.
-      return np.array(X, dtype=object), Y
+
+      print("Loading dataset...", end="\n" * 2)
+      metadata = self.metadata
+      data = self._load_raw_data()
+
+      # Filter metadata for records with at least one diagnostic superclass
+      X_data = data[metadata["superdiagnostic_len"] >= 1]
+      Y_data = metadata[metadata["superdiagnostic_len"] >= 1]
+
+      mlb = MultiLabelBinarizer()
+      mlb.fit(Y_data["diagnostic_superclass"])
+      y = mlb.transform(Y_data["diagnostic_superclass"].values)
+
+      return X_data, y, Y_data, mlb.classes_
 
   @property
   def X(self):

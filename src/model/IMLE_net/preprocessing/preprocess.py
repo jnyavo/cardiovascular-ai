@@ -48,13 +48,17 @@ def apply_scaler(inputs: np.array, scaler: StandardScaler) -> np.array:
     return temp
 
 
-def preprocess(path: str = "data/ptb") -> Tuple[np.array]:
+def preprocess(X_data: np.ndarray, y: np.ndarray, Y_data: pd.DataFrame):
     """Preprocesses the dataset.
 
     Parameters
     ----------
-    path: str
-        Path to the dataset. (default: 'data/ptb')
+    X_data: np.ndarray
+        Array of ECG signals.
+    y: np.ndarray
+        Array of labels corresponding to the ECG signals.
+    Y_data: pd.DataFrame
+        DataFrame containing metadata for the ECG signals.
 
     Returns
     -------
@@ -63,41 +67,8 @@ def preprocess(path: str = "data/ptb") -> Tuple[np.array]:
 
     """
 
-    print("Loading dataset...", end="\n" * 2)
-
-    path = os.path.join(os.getcwd(), Path(path))
-    Y = pd.read_csv(os.path.join(path, "ptbxl_database.csv"), index_col="ecg_id")
-    data = np.array([wfdb.rdsamp(os.path.join(path, f))[0] for f in Y.filename_lr])
-    Y.scp_codes = Y.scp_codes.apply(lambda x: ast.literal_eval(x))
-
-    agg_df = pd.read_csv(os.path.join(path, "scp_statements.csv"), index_col=0)
-    agg_df = agg_df[agg_df.diagnostic == 1]
-
-    def agg(y_dic):
-        temp = []
-
-        for key in y_dic.keys():
-            if key in agg_df.index:
-                c = agg_df.loc[key].diagnostic_class
-                if str(c) != "nan":
-                    temp.append(c)
-        return list(set(temp))
-
-    Y["diagnostic_superclass"] = Y.scp_codes.apply(agg)
-    Y["superdiagnostic_len"] = Y["diagnostic_superclass"].apply(lambda x: len(x))
-    counts = pd.Series(np.concatenate(Y.diagnostic_superclass.values)).value_counts()
-    Y["diagnostic_superclass"] = Y["diagnostic_superclass"].apply(
-        lambda x: list(set(x).intersection(set(counts.index.values)))
-    )
-
-    X_data = data[Y["superdiagnostic_len"] >= 1]
-    Y_data = Y[Y["superdiagnostic_len"] >= 1]
-
     print("Preprocessing dataset...", end="\n" * 2)
 
-    mlb = MultiLabelBinarizer()
-    mlb.fit(Y_data["diagnostic_superclass"])
-    y = mlb.transform(Y_data["diagnostic_superclass"].values)
 
     # Stratified split
     X_train = X_data[Y_data.strat_fold < 9]
@@ -109,7 +80,7 @@ def preprocess(path: str = "data/ptb") -> Tuple[np.array]:
     X_test = X_data[Y_data.strat_fold == 10]
     y_test = y[Y_data.strat_fold == 10]
 
-    del X_data, Y_data, y, data
+    del X_data, Y_data, y
 
     # Standardization
     scaler = StandardScaler()
