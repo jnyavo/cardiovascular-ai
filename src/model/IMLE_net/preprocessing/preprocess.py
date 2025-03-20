@@ -21,7 +21,7 @@ from pathlib import Path
 from sklearn.preprocessing import StandardScaler, MultiLabelBinarizer
 from sklearn.utils import shuffle
 from sklearn.preprocessing import StandardScaler
-
+from joblib import dump, load
 
 def apply_scaler(inputs: np.array, scaler: StandardScaler) -> np.array:
     """Applies standardization to each individual ECG signal.
@@ -48,7 +48,7 @@ def apply_scaler(inputs: np.array, scaler: StandardScaler) -> np.array:
     return temp
 
 
-def preprocess(X_data: np.ndarray, y: np.ndarray, Y_data: pd.DataFrame):
+def preprocess(X_data: np.ndarray, y: np.ndarray, Y_data: pd.DataFrame, scaler_path: str = 'bin/standardization.bin'):
     """Preprocesses the dataset.
 
     Parameters
@@ -83,8 +83,15 @@ def preprocess(X_data: np.ndarray, y: np.ndarray, Y_data: pd.DataFrame):
     del X_data, Y_data, y
 
     # Standardization
-    scaler = StandardScaler()
-    scaler.fit(np.vstack(X_train).flatten()[:, np.newaxis].astype(float))
+    scaler_path = os.path.join(os.getcwd(), scaler_path)
+    scaler: StandardScaler
+    if os.path.exists(scaler_path):
+        scaler = load(scaler_path)
+        print(f"Loading scaler from {scaler_path}")
+    else:
+        scaler = StandardScaler()
+        scaler.fit(np.vstack(X_train).flatten()[:, np.newaxis].astype(float))
+        dump(scaler, scaler_path)
     X_train_scale = apply_scaler(X_train, scaler)
     X_test_scale = apply_scaler(X_test, scaler)
     X_val_scale = apply_scaler(X_val, scaler)

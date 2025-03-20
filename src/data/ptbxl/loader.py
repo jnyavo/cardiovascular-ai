@@ -1,5 +1,6 @@
 import ast
 import os
+from joblib import dump, load
 import pandas as pd
 from sklearn.preprocessing import MultiLabelBinarizer
 import wfdb
@@ -30,7 +31,8 @@ class PTBXL:
       record = ptbxl.load_record(1)
       record.draw_ecg(lead=Lead.I)  # Draws lead I of the ECG
   """
-  def __init__(self, base_path='dataset/ptb-xl', sampling_rate: SamplingRate=SamplingRate.HZ_100, metadata_filename='ptbxl_database.csv', scp_file="scp_statements.csv"):
+  def __init__(self, base_path='dataset/ptb-xl', sampling_rate: SamplingRate=SamplingRate.HZ_100, \
+               metadata_filename='ptbxl_database.csv', scp_file="scp_statements.csv", label_encoder_path="bin/label_encoder.bin"):
     """
     Initialize the PTBXL loader.
 
@@ -71,6 +73,7 @@ class PTBXL:
     )
     
     self.metadata = metadata
+    self.label_encoder_path = os.path.join(current_path, label_encoder_path)
   
   def get_ptbxl_data_path(self, ecg_id):
     return os.path.join(
@@ -84,6 +87,37 @@ class PTBXL:
         data = [wfdb.rdsamp(os.path.join(self.base_path, f))[0] for f in df.filename_lr]
     else:
         data = [wfdb.rdsamp(os.path.join(self.base_path, f))[0] for f in df.filename_hr]
+    return np.array(data)
+  
+  def _load_raw_data_mp(self):
+    """Load all raw ECG data from the dataset.
+    
+    Returns:
+        np.ndarray: Array containing all ECG signals
+    """
+    df = self.metadata
+    print("Loading dataset using multiple threads...", end="\n" * 2)
+    file_pattern = 'filename_lr' if self.sampling_rate == SamplingRate.HZ_100 else 'filename_hr'
+    file_paths = [os.path.join(self.base_path, f) for f in df[file_pattern]]
+    
+    # Use parallel processing to speed up loading
+    from concurrent.futures import ThreadPoolExecutor
+    from functools import partial
+    
+    def load_single_record(path):
+        try:
+            return wfdb.rdsamp(path)[0]
+        except Exception as e:
+            print(f"Error loading {path}: {e}")
+            return None
+    
+    # Load records in parallel using multiple threads
+    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+        data = list(executor.map(load_single_record, file_paths))
+    
+    # Filter out any None values (from failed loads)
+    data = [x for x in data if x is not None]
+    
     return np.array(data)
   
   def load_record(self, id: int):
@@ -121,16 +155,22 @@ class PTBXL:
       Note: Loading all records may be time consuming and memory intensive.
       """
 
-      print("Loading dataset...", end="\n" * 2)
       metadata = self.metadata
-      data = self._load_raw_data()
+      data = self._load_raw_data_mp()
 
       # Filter metadata for records with at least one diagnostic superclass
       X_data = data[metadata["superdiagnostic_len"] >= 1]
       Y_data = metadata[metadata["superdiagnostic_len"] >= 1]
 
-      mlb = MultiLabelBinarizer()
-      mlb.fit(Y_data["diagnostic_superclass"])
+      mlb: MultiLabelBinarizer
+      if os.path.exists(self.label_encoder_path):
+          print(f"Loading label encoder from {self.label_encoder_path}")
+          mlb = load(self.label_encoder_path)
+      else:
+          mlb = MultiLabelBinarizer()
+          mlb.fit(Y_data["diagnostic_superclass"])
+          # Save the fitted label encoder
+          dump(mlb, self.label_encoder_path)
       y = mlb.transform(Y_data["diagnostic_superclass"].values)
 
       return X_data, y, Y_data, mlb.classes_
