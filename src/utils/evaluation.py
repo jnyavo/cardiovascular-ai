@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score, roc_auc_score, accuracy_score
 import seaborn as sns
+import os
 
 
 def evaluate_classification(
@@ -312,4 +313,100 @@ def analyze_misclassifications(
             print(f"  All class probabilities: {', '.join([f'{classes[c]}: {p:.3f}' for c, p in enumerate(y_pred[idx])])}")
             
             # If display capability is needed, add code to plot the ECG here
+
+
+def visualize_class_distribution(y, classes, figsize=(14, 8), color='skyblue', 
+                                       top_n=None, save_path=None):
+    """
+    Visualizes the distribution of diagnostic classes in the PTB-XL dataset.
+    
+    This function takes the label matrix and class names, counts the number of records 
+    for each diagnostic class, and creates a bar chart to visualize this distribution.
+    
+    Parameters:
+    -----------
+    y : numpy.ndarray
+        Binary label matrix where rows are samples and columns are classes (one-hot encoded or multi-label).
+    classes : list or numpy.ndarray
+        Names of the classes corresponding to the columns in y.
+    figsize : tuple, optional
+        Figure size for the plot. Default is (14, 8).
+    color : str or list, optional
+        Color(s) for the bars. Default is 'skyblue'. Can be a single color or a list of colors.
+    top_n : int, optional
+        If provided, only the top N most frequent classes are shown. Default is None (all classes).
+    save_path : str, optional
+        If provided, the figure will be saved to this path. Default is None (not saved).
+        
+    Returns:
+    --------
+    tuple
+        (sorted_counts, sorted_classes, figure) - Counts of each class, class names (sorted by frequency), 
+        and the matplotlib figure object.
+    
+    """
+    
+    # Count instances per class (sum of binary matrix)
+    class_counts = np.sum(y, axis=0)
+    
+    # Sort by frequency for better visualization
+    sorted_indices = np.argsort(class_counts)[::-1]
+    sorted_classes = np.array(classes)[sorted_indices]
+    sorted_counts = class_counts[sorted_indices]
+    
+    # Limit to top N classes if specified
+    if top_n is not None and top_n < len(sorted_classes):
+        sorted_classes = sorted_classes[:top_n]
+        sorted_counts = sorted_counts[:top_n]
+    
+    # Create the visualization
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Handle color parameter
+    if isinstance(color, list) and len(color) == len(sorted_classes):
+        bars = ax.bar(range(len(sorted_classes)), sorted_counts, color=color)
+    else:
+        bars = ax.bar(range(len(sorted_classes)), sorted_counts, color=color)
+    
+    # Add value labels above each bar with more padding
+    for i, count in enumerate(sorted_counts):
+        ax.text(i, count + max(sorted_counts)*0.03, f'{int(count)}', ha='center', fontsize=11)
+    
+    # Add labels and title
+    ax.set_xticks(range(len(sorted_classes)))
+    ax.set_xticklabels(sorted_classes, rotation=45, ha='right')
+    ax.set_title('Diagnostic Class Distribution', fontsize=16)
+    ax.set_xlabel('Diagnostic Classes', fontsize=14)
+    ax.set_ylabel('Number of Instances', fontsize=14)
+    
+    # Add grid lines for better readability
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    
+    # Add information about the dataset as a text box
+    total_records = len(y)
+    multi_label_count = np.sum(np.sum(y, axis=1) > 1)
+    multi_label_ratio = multi_label_count / len(y) if len(y) > 0 else 0
+    
+    # Create a text box for dataset information
+    info_text = f'Dataset Summary:\n' \
+                f'Total records: {total_records}\n' \
+                f'Multi-label records: {multi_label_count} ({multi_label_ratio:.1%})'
+    
+    # Add a text box in the upper right corner
+    props = dict(boxstyle='round', facecolor='white', alpha=0.8)
+    ax.text(0.97, 0.97, info_text, transform=ax.transAxes, fontsize=12,
+            verticalalignment='top', horizontalalignment='right',
+            bbox=props, linespacing=1.5)
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Save figure if path is provided
+    if save_path is not None:
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Figure saved to {save_path}")
+    
+    return sorted_counts, sorted_classes, fig
 

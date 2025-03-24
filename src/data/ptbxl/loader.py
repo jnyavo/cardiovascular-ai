@@ -32,7 +32,7 @@ class PTBXL:
       record.draw_ecg(lead=Lead.I)  # Draws lead I of the ECG
   """
   def __init__(self, base_path='dataset/ptb-xl', sampling_rate: SamplingRate=SamplingRate.HZ_100, \
-               metadata_filename='ptbxl_database.csv', scp_file="scp_statements.csv", label_encoder_path="bin/label_encoder.bin"):
+               metadata_filename='ptbxl_database.csv', scp_file="scp_statements.csv", label_encoder_path="bin/label_encoder.bin", multi_threaded=False):
     """
     Initialize the PTBXL loader.
 
@@ -40,8 +40,12 @@ class PTBXL:
     - base_path (str): Local path where the PTB‑XL dataset is stored.
     - sampling_rate (str): Which folder to load from; e.g. '100' or '500'.
     - metadata_filename (str): Filename of the metadata CSV (e.g., ptbxl_database.csv).
+    - scp_file (str): Filename of the SCP statements CSV (e.g., scp_statements.csv).
+    - label_encoder_path (str): Path to save/load the label encoder.
+    - multi_threaded (bool): Whether to load data using multiple threads or not.
     """
     current_path = os.getcwd()
+    self.multi_threaded = multi_threaded
     full_path = os.path.join(current_path,base_path, f"records{sampling_rate}" )
     if not os.path.exists(full_path):
         raise ValueError(f"Path {full_path} does not exist. Please check your base_path and sampling_rate.")
@@ -83,14 +87,12 @@ class PTBXL:
   
   def _load_raw_data(self):
     df = self.metadata
-    if self.sampling_rate == SamplingRate.HZ_100:
-        data = [wfdb.rdsamp(os.path.join(self.base_path, f))[0] for f in df.filename_lr]
-    else:
-        data = [wfdb.rdsamp(os.path.join(self.base_path, f))[0] for f in df.filename_hr]
-    return np.array(data)
+    file_pattern = 'filename_lr' if self.sampling_rate == SamplingRate.HZ_100 else 'filename_hr'
+    print("Loading dataset using single thread...", end="\n" * 2)
+    return np.array([wfdb.rdsamp(os.path.join(self.base_path, f))[0] for f in df[file_pattern]])
   
   def _load_raw_data_mp(self):
-    """Load all raw ECG data from the dataset.
+    """Load all raw ECG data from the dataset using multiple threads.
     
     Returns:
         np.ndarray: Array containing all ECG signals
@@ -105,20 +107,15 @@ class PTBXL:
     from functools import partial
     
     def load_single_record(path):
-        try:
-            return wfdb.rdsamp(path)[0]
-        except Exception as e:
-            print(f"Error loading {path}: {e}")
-            return None
+      return wfdb.rdsamp(path)[0]
+  
     
     # Load records in parallel using multiple threads
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
         data = list(executor.map(load_single_record, file_paths))
     
-    # Filter out any None values (from failed loads)
-    data = [x for x in data if x is not None]
-    
     return np.array(data)
+    
   
   def load_record(self, id: int):
     """
@@ -156,7 +153,7 @@ class PTBXL:
       """
 
       metadata = self.metadata
-      data = self._load_raw_data_mp()
+      data = self._load_raw_data_mp() if self.multi_threaded else self._load_raw_data()
 
       # Filter metadata for records with at least one diagnostic superclass
       X_data = data[metadata["superdiagnostic_len"] >= 1]
