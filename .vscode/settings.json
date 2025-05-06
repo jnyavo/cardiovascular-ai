@@ -1,0 +1,6 @@
+{
+  "python.analysis.extraPaths": [
+    "./ECG-Digitiser/nnUNet",
+    "./fairseq-signals"
+  ]
+}

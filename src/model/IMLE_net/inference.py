@@ -44,7 +44,7 @@ def transform_ecg_for_inference(data: np.ndarray, scaler_path: str | None = 'bin
     return data
 
 
-def build_scores(model: tf.keras.Model, data: np.asarray, config: Config) -> None:
+def build_scores(model: tf.keras.Model, data: np.asarray, config: Config, classes: list | None = None) -> int:
     """ Calculating the attention scores and visualization.
 
     Parameters
@@ -55,14 +55,25 @@ def build_scores(model: tf.keras.Model, data: np.asarray, config: Config) -> Non
         Sample data to be visualized.  
     config:
         Configuration for the imle-net model.
+    classes: list | None
+        Optional list of class names to display on the classes axis. If None, uses config.class_names or defaults to 'Class N'.
 
+    Returns
+    -------
+    int
+        Index of the highest predicted class
     """
 
+    # Get attention scores
     scores_model = tf.keras.models.Model(inputs = model.input, outputs = [model.get_layer("beat_att").output, 
                                                                            model.get_layer("rhythm_att").output,
                                                                            model.get_layer("channel_att").output])
     beat, rhythm, channel = scores_model(data)
     beat = beat[1].numpy(); rhythm = rhythm[1].numpy(); channel = channel[1].numpy()
+
+    # Get prediction output
+    predictions = model.predict(data)
+    predicted_class = np.argmax(predictions[0])
 
     # Beat scores
     lin = np.linspace(0, config.input_channels, num=config.beat_len)
@@ -96,7 +107,7 @@ def build_scores(model: tf.keras.Model, data: np.asarray, config: Config) -> Non
     data = data.squeeze()
 
     for i, (ax, ch) in enumerate(zip(axs, ch_info)):
-        im = ax.scatter(np.arange(len(data[i])), data[i], cmap='Spectral', c=beat_normalized[i], vmin=v_min, vmax=v_max)
+        im = ax.scatter(np.arange(len(data[i])), data[i], cmap='Spectral_r', c=beat_normalized[i], vmin=v_min, vmax=v_max)
         ax.plot(data[i], color=(0.2, 0.68, 1))
         ax.set_yticks([])
         ax.set_title(ch, fontsize=25)
@@ -111,27 +122,7 @@ def build_scores(model: tf.keras.Model, data: np.asarray, config: Config) -> Non
     # Show the figure in the notebook
     plt.show()
 
-    # Display channel importance scores using matplotlib
-    # plt.figure(figsize=(12, 6))
-    # bars = plt.bar(ch_info, channel)
-    
-    # # Add value labels above each bar
-    # for i, v in enumerate(channel):
-    #     plt.text(i, v + 0.01, f'{v:.3f}', ha='center')
-        
-    # plt.title('Channel Importance Scores', fontsize=18)
-    # plt.ylabel('Importance Score', fontsize=14)
-    # plt.xlabel('ECG Leads', fontsize=14)
-    # plt.xticks(rotation=0)
-    # plt.grid(axis='y', linestyle='--', alpha=0.7)
-    
-    # # Highlight the most important channels
-    # threshold = np.mean(channel) + 0.5 * np.std(channel)
-    # for i, bar in enumerate(bars):
-    #     if channel[i] > threshold:
-    #         bar.set_color('orange')
-    
-    # Create and save the interactive plotly visualization
+    # Create and save the interactive plotly visualization for channel importance
     fig = px.bar(
         x=ch_info, 
         y=channel, 
@@ -144,9 +135,53 @@ def build_scores(model: tf.keras.Model, data: np.asarray, config: Config) -> Non
         title_font=dict(size=18)
     )
     
-    # Save HTML file
+    # Save HTML file for channel importance
     fig.write_html(os.path.join(results_filepath, 'channel_visualization.html'))
     
     # Display the plotly figure in the notebook
     from IPython.display import display
     display(fig)
+    
+    # Determine class names for visualization
+    if classes is not None:
+        class_names = classes
+    else:
+        class_names = [f"Class {i}" if not hasattr(config, 'class_names') else config.class_names[i] 
+                     for i in range(len(predictions[0]))]
+    
+    prediction_fig = px.bar(
+        x=class_names,
+        y=predictions[0],
+        title='Prediction Probabilities',
+        labels={'x': 'Classes', 'y': 'Probability'},
+        color=predictions[0],
+        color_continuous_scale='Viridis'
+    )
+    
+    prediction_fig.update_layout(
+        xaxis=dict(tickangle=45),
+        yaxis=dict(title_font=dict(size=14)),
+        title_font=dict(size=18),
+        coloraxis_showscale=False
+    )
+    
+    # Highlight predicted class
+    prediction_fig.add_shape(
+        type="rect",
+        x0=predicted_class-0.4, y0=0,
+        x1=predicted_class+0.4, y1=predictions[0][predicted_class],
+        line=dict(color="red", width=3),
+        fillcolor="rgba(0,0,0,0)"
+    )
+    
+    # Save HTML file for predictions
+    prediction_fig.write_html(os.path.join(results_filepath, 'prediction_visualization.html'))
+    
+    # Display the prediction figure
+    display(prediction_fig)
+    
+    # Print the highest prediction class
+    print(f"Predicted Class: {class_names[predicted_class]} (index: {predicted_class})")
+    print(f"Prediction Probability: {predictions[0][predicted_class]:.4f}")
+    
+    return predicted_class

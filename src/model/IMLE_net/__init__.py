@@ -187,6 +187,13 @@ def residual_block(
     out = relu_bn(out)
     return out
 
+def focal_loss(gamma=2., alpha=.25):
+    def focal_loss_fixed(y_true, y_pred):
+        pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
+        pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
+        return -K.mean(alpha * K.pow(1. - pt_1, gamma) * K.log(pt_1) + 
+                      (1 - alpha) * K.pow(pt_0, gamma) * K.log(1. - pt_0))
+    return focal_loss_fixed
 
 def build_imle_net(config: Config, sub=False) -> tf.keras.Model:
     """Builds the IMLE-Net model.
@@ -222,27 +229,39 @@ def build_imle_net(config: Config, sub=False) -> tf.keras.Model:
             x = residual_block(x, downsample=(j == 0 and i != 0), filters=num_filters)
         num_filters *= 2
 
-    feature_dim = num_filters // 2 
+    feature_dim = num_filters // 2
 
-    x, _ = attention(name="beat_att", dim=attention_dim)(x)
+  # Extract features from each level
+    beat_features, _ = attention(name="beat_att", dim=attention_dim)(x)
+    
+    # Rhythm level processing
+    rhythm_input = K.reshape(beat_features, (-1, int(config.signal_len / config.beat_len), feature_dim))
+    rhythm_output = Bidirectional(LSTM(config.lstm_units, return_sequences=True))(rhythm_input)
+    rhythm_features, _ = attention(name="rhythm_att", dim=attention_dim)(rhythm_output)
+    
+    # Channel level processing
+    channel_input = K.reshape(rhythm_features, (-1, config.input_channels, feature_dim))
+    channel_features, _ = attention(name="channel_att", dim=attention_dim)(channel_input)
+    nb_classes = config.classes
+    if (nb_classes == 2):
+        # Feature fusion approach for binary classification
+        combined_features = tf.keras.layers.Concatenate()([
+            beat_features, 
+            rhythm_features,
+            channel_features
+        ])
+        x = Dense(feature_dim//2, activation='relu')(combined_features)
+        x, _ = attention(name="binary_att", dim=attention_dim//2)(x)
 
-    # Rhythm level
-    x = K.reshape(x, (-1, int(config.signal_len / config.beat_len), feature_dim))
-    x = Bidirectional(LSTM(config.lstm_units, return_sequences=True))(x)
-    x, _ = attention(name="rhythm_att", dim=attention_dim)(x)
-
-    # Channel level
-    x = K.reshape(x, (-1, config.input_channels, feature_dim))
-    x, _ = attention(name="channel_att", dim=attention_dim)(x)
-    outputs = Dense(config.classes, activation="sigmoid")(x)
+    outputs = Dense(nb_classes, activation="sigmoid" if nb_classes > 2 else "softmax")(channel_features)
 
     model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
 
     if not sub:
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-            loss=tf.keras.losses.BinaryCrossentropy(),
-            metrics=["accuracy", tf.keras.metrics.AUC(multi_label=True)],
+            loss=tf.keras.losses.BinaryCrossentropy() if nb_classes > 2 else focal_loss(gamma=2., alpha=.25),
+            metrics=["accuracy", tf.keras.metrics.AUC(multi_label=True)] if nb_classes > 2 else ["accuracy", tf.keras.metrics.AUC(), tf.keras.metrics.Precision(), tf.keras.metrics.Recall()],
         )
         model._name = "IMLE-Net"
         print(model.summary())

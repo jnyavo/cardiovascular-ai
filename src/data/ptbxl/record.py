@@ -13,7 +13,7 @@ TIME = 10
 END_TIME = START_TIME + TIME
 
 class Record:
-  def __init__(self, record: RecordType, diagnostic: str, scp_codes: list[str]):
+  def __init__(self, record: RecordType, diagnostic: str = None, scp_codes: list[str] = None):
       self.data, self.fields = record
       self.diagnostic = diagnostic
       self.scp_codes = scp_codes
